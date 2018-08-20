@@ -1,0 +1,85 @@
+#TODO give valid options for eg. tag_agent: cmk-agent, ping...
+# ^ can be done by first getting all hosts from site and saving all current values? works for folders but not necessarily sites/tags...
+# ^ where are host_tags kept in the file system?
+#TODO what if the user wants to add the host to the home directory
+
+# Script to use Check_MK's web API to add hosts to sites
+
+
+import requests
+import ast
+
+
+#acting on destination site
+add_url = "http://{{ip}}/{{site_name}}/check_mk/webapi.py?action=add_host&_username=automation&_secret={{auto_secret.stdout}}&request_format=python&output_format=python"
+services_url = "http://{{ip}}/{{site_name}}/check_mk/webapi.py?action=discover_services&_username=automation&_secret={{auto_secret.stdout}}&request_format=python&output_format=python"
+activate_url = "http://{{ip}}/{{site_name}}/check_mk/webapi.py?action=activate_changes&_username=automation&_secret={{auto_secret.stdout}}&request_format=python&output_format=python"
+
+
+class color:
+    OK = '\x1b[1;32;40m'
+    ALERT = '\x1b[1;31;40m'
+    END = '\x1b[0m'
+    MAN = '\x1b[1;37;40m'
+
+
+
+#Process GET response; report to stdout
+def check_print(type, host, _response):
+    response = ast.literal_eval(_response.text)
+    if response['result_code'] != 0:
+        print type, host, color.ALERT + response['result'] + color.END
+        return False
+    else:
+        print type, host, color.OK + "OK" + color.END
+        return True
+
+
+def services(host):
+    #Send GET request for services
+    url = services_url+'&request={\'hostname\': \''+host+"\'}"
+    put_response = requests.get(url, verify=False)
+    check_print("SERVICES", host, put_response)
+
+
+print color.MAN
+print "Add hosts to sites. Type exit to leave. Will activate changes upon exit."
+print "Enter attributes with the following order:"
+print "   hostname    ip/alias       tag agent   path/folder  site     "
+print "eg.myhostname  172.23.240.128 cmk-agent   linux        test_site"
+print color.END
+
+count = 0
+host_input = ""
+
+# Parses input, sends request to add and do service discovery
+while host_input.lower() != "exit":
+    count += 1
+    print "\nHost", str(count) + ":"
+    host_input = raw_input()
+
+    host_tuple = host_input.split()
+    if len(host_tuple) != 5:
+        print "Incorrect number of arguments"
+        continue
+
+    snmp_community = None
+    if host_tuple[2] == "snmp-only":
+        snmp_community = 'public'
+
+    request_str = "&request={'attributes': {'tag_agent': '"+host_tuple[2]+\
+          "', 'snmp-community': '"+snmp_community+"', 'alias': '"+host_tuple[1]+\
+          "', 'site': '"+host_tuple[4]+"', 'ipaddress': '"+host_tuple[1]+\
+          "'}, 'hostname': '"+host_tuple[0]+"', 'folder': '"+host_tuple[3]+"'}"
+
+    add_response = requests.get(add_url+request_str, verify=False)
+    added_eh = check_print("ADD", host_tuple[0], add_response)
+    if added_eh:
+        services(host_tuple[0])
+
+
+print "\nActivating..."
+
+#Activating changes
+activate_response = requests.get(activate_url, verify=False)
+check_print("ACTIVATION", "HOSTS", activate_response)
