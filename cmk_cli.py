@@ -1,15 +1,14 @@
-#TODO give valid options for eg. tag_agent: cmk-agent, ping...
-# ^ can be done by first getting all hosts from site and saving all current values? works for folders but not necessarily sites/tags...
-# ^ where are host_tags kept in the file system?
 #TODO what if the user wants to add the host to the home directory
 #TODO add some kind of logging/security
+#TODO EOF and "exit" ending
 
 # Script to use Check_MK's web API to manipulate hosts on a site
 
-
+import readline
 import requests
 import ast
 import pprint
+import cmd
 
 #acting on destination site
 #need to append action to url and required attributes for use
@@ -32,33 +31,6 @@ class color:
     HL = '\x1b[1;36;40m'
 
 
-man_string = '5 instruction types: man, add, edit, view and delete\n\
- \n\
- Type man to view this instruction set.\n\
- \n\
- Use add with the following format to add hosts to the site (services included):\n\
- '+color.HL+'    add hostname  ip/alias       tag agent   path/folder  site'+color.MAN+'\n\
-  eg.add vm1       172.23.240.128 cmk-agent   linux        test_site\n\
- \n\
- Use edit with the following format to edit existing hosts (one tag at a time):\n\
- '+color.HL+'    edit hostname   tag name   tag value'+color.MAN+'\n\
-  eg.edit vm1        tag-os     rhel7x\n\
- \n\
- Use view to see host tag values; type "view all" or specify a host as follows:\n\
- '+color.HL+'    view hostname'+color.MAN+'\n\
-  eg.view vm1\n\
- \n\
- Use delete with the following format to remove existing hosts:\n\
- '+color.HL+'    delete hostname imsure'+color.MAN+'\n\
-  eg.delete vm1 imsure\n\
- \n\
- \n\
- Valid tag agents include "cmk-agent", "snmp-only" and "ping"\n\
- Hosts added with snmp-only tag will be given the default community string public.\n\
- \n\
- Valid editable tags include ipaddress, alias, tag_agent, site, snmp_community, \n\
-  and any tags created on the GUI.\n\
- '
 
 
 
@@ -110,46 +82,46 @@ def add_host(host_tuple):
         services(host_tuple[1])
 
 def view_host(host_tuple):
-    if len(host_tuple) != 2:
+    if len(host_tuple) != 1:
         print "Incorrect number of arguments"
         return
 
-    if host_tuple[1] == "all":
+    if host_tuple[0] == "all":
         view_url = url+url_actions["view all"]
         view_response = requests.get(view_url, verify=False)
-        check_print("VIEW", host_tuple[1], view_response)
+        check_print("VIEW", host_tuple[0], view_response)
         pprint.pprint(ast.literal_eval(view_response.text)['result'])
 
     else:
-        view_url = url+url_actions["view"]+"&hostname="+host_tuple[1]
+        view_url = url+url_actions["view"]+"&hostname="+host_tuple[0]
         view_response = requests.get(view_url, verify=False)
-        check_print("VIEW", host_tuple[1], view_response)
+        check_print("VIEW", host_tuple[0], view_response)
         pprint.pprint(ast.literal_eval(view_response.text)['result'])
 
 def edit_host(host_tuple):
-    if len(host_tuple) != 4:
-        print "Incorrect number of arguments"
-        return
-    
-    tag_name = host_tuple[2]
-    tag_value = host_tuple[3]
-    request_str = "&request={'attributes': {'"+tag_name+"': '"+tag_value+"'}}"
-
-    edit_url = url+url_actions["edit"]+"&hostname="+host_tuple[1]+request_str
-    edit_response = requests.get(edit_url, verify=False)
-    check_print("EDIT", host_tuple[1], edit_response)
-
-def delete_host(host_tuple):
     if len(host_tuple) != 3:
         print "Incorrect number of arguments"
         return
-    elif host_tuple[2] != "imsure":
+    
+    tag_name = host_tuple[1]
+    tag_value = host_tuple[2]
+    request_str = "&request={'attributes': {'"+tag_name+"': '"+tag_value+"'}}"
+
+    edit_url = url+url_actions["edit"]+"&hostname="+host_tuple[0]+request_str
+    edit_response = requests.get(edit_url, verify=False)
+    check_print("EDIT", host_tuple[0], edit_response)
+
+def delete_host(host_tuple):
+    if len(host_tuple) != 2:
+        print "Incorrect number of arguments"
+        return
+    elif host_tuple[1] != "imsure":
         print "You are not sure enough"
         return
 
-    delete_url = url+url_actions["delete"]+"&hostname="+host_tuple[1]
+    delete_url = url+url_actions["delete"]+"&hostname="+host_tuple[0]
     delete_response = requests.get(delete_url, verify=False)
-    check_print("DELETE", host_tuple[1], delete_response)
+    check_print("DELETE", host_tuple[0], delete_response)
 
 def activate():
     print "\nActivating..."
@@ -159,55 +131,141 @@ def activate():
     check_print("ACTIVATION", "HOSTS", activate_response)
 
 def services_host(instr_tuple):
-    if len(instr_tuple) != 2:
+    if len(instr_tuple) != 1:
        print "Incorrect number of arguments"
        return
-    services(instr_tuple[1])
+    services(instr_tuple[0])
+
+hosts = []
+folders = []
+tags = ["tag_os", "one_more"]#TODO include tag values
+ip = [] #TODO general ip ranges? like first 8 bits, then next 8...
+sites = [] #TODO 
 
 def populate():
+    populate_response = requests.get(url+url_actions["view all"], verify=False)
+    raw_hosts = ast.literal_eval(populate_response.text)['result']
+    for host in raw_hosts:
+        hosts.append(host)
+
+
     populate_response = requests.get(url+url_actions["folders"], verify=False)
-    folders = ast.literal_eval(populate_response.text)['result']
-    pprint.pprint(folders)
-    for i in folders:
-        print i
+    raw_folders = ast.literal_eval(populate_response.text)['result']
+    for folder in raw_folders:
+        folders.append(folder)
     
     #populate_response = requests.get(url+url_actions["hosttags"], verify=False)
     #pprint.pprint(ast.literal_eval(populate_response.text)['result']['tag_groups'][2])
 
 
-populate()        
 
-print color.MAN
-print "Add, edit, view and delete hosts on site."
-print "Type exit to leave. Changes will be activated upon exit."
-print "Type man to view instruction set."
-print color.END
+# for tab auto-complete feature
+# in general, each command has a do and a complete function
+#       when enter is pressed, do is executed; when tab, complete
+class MyCmd(cmd.Cmd):
+    intro = 'CLI leveraging Check_MK\'s Web-API. \nType ? <keyword> for more info.' 
+    prompt = '> '
 
-instruction = ""
 
-# Parses input, sends request to add and do service discovery
-while instruction.lower() != "exit":
+    def do_add(self, line):
+        # string used as the help entry by cmd
+        'add hostname ip tag_agent folder site'
+        add_host(line.split())
+    def complete_add(self, text, line, start_index, end_index):
+        args = line.split()
+        if text:
+            if len(args) == 2:
+                return [
+                    host for host in hosts
+                    if host.startswith(text)
+                ]
+            elif len(args) == 3:
+                return 
+            elif len(args) == 4:
+                return [
+                    agent for agent in agents
+                    if agent.startswith(text)
+                ]
+        else:
+            if len(args) == 1:
+                return hosts
+            elif len(args) == 2:
+                return tags
 
-    instruction = raw_input("\n> ").lower()
-    instr_tuple = instruction.split()
-   
-    if instr_tuple[0] == "man":
-        print color.MAN + man_string + color.END
-    elif instr_tuple[0] == "add":
-        add_host(instr_tuple)
-    elif instr_tuple[0] == "edit":
-        edit_host(instr_tuple)
-    elif instr_tuple[0] == "view":
-        view_host(instr_tuple) 
-    elif instr_tuple[0] == "delete":
-        delete_host(instr_tuple)
-    elif instr_tuple[0] == "activate":
+    def do_edit(self, line):
+        'edit hostname tag_name tag_value'
+        edit_host(line.split())            
+    def complete_edit(self, text, line, start_index, end_index):
+        args = line.split()        
+        if text:
+	    if len(args) == 2:
+                return [
+                    host for host in hosts
+                    if host.startswith(text)
+                ]
+            elif len(args) == 3:
+                return [
+                    tag for tag in tags
+                    if tag.startswith(text)
+                ]
+            elif len(args) == 4:
+                return [
+                    value for value in os_value
+                    if value.startswith(text)
+                ]
+        else:
+            if len(args) == 1:
+                return hosts
+            elif len(args) == 2:
+                return tags
+        
+    def do_view(self, line):
+        'view hostname (or all)'
+        view_host(line.split())
+    def complete_view(self, text, line, start_index, end_index):
+        if text:
+            return [
+                host for host in ( hosts+["all"] )
+                if host.startswith(text)
+            ]
+        else: 
+            return hosts+["all"]
+
+    def do_delete(self, line):
+        'delete hostname imsure (to acknowledge the finality of the action)'
+        delete_host(line.split())
+    def complete_delete(self, text, line, start_index, end_index):
+        if text:
+            return [
+                host for host in hosts
+                if host.startswith(text)
+            ]
+        else:
+            return hosts
+
+    def do_services(self, line):
+        'services hostname'    
+        services_host(line.split())
+    def complete_services(self, text, line, start_index, end_index):
+        if text:
+            return [
+                host for host in hosts
+                if host.startswith(text)
+            ]
+        else:
+            return hosts
+
+    def do_activate(self, line):
+        'activate'
         activate()
-    elif instr_tuple[0] == "services":
-        services_host(instr_tuple) 
-    elif instr_tuple[0] == "exit":
-        break
-    else:
-        print "Invalid instruction keyword"
 
-activate()
+
+
+
+
+if __name__ == '__main__':
+    populate()
+    my_cmd = MyCmd()
+    my_cmd.cmdloop()
+        
+#    activate()
