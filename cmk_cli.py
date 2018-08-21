@@ -1,4 +1,3 @@
-#TODO what if the user wants to add the host to the home directory
 #TODO add some kind of logging/security
 
 # Script to use Check_MK's web API to manipulate hosts on a site
@@ -55,7 +54,7 @@ def add_host(host_tuple):
         print "Incorrect number of arguments"
         return 
 
-    
+    # translating agent tags    
     if host_tuple[2] == "agent":
         snmp_community = 'None'
         tag_agent = 'cmk-agent'
@@ -67,6 +66,10 @@ def add_host(host_tuple):
     else:
         print "Valid tags are 'agent' and 'snmp'"
         return
+
+    # translating folder tag
+    if host_tuple[3] == "main":
+        host_tuple[3] = ''
 
     request_str = "&request={'attributes': {'tag_agent': '"+tag_agent+\
           "', 'tag_snmp': '"+tag_snmp+"', 'snmp_community': '"+snmp_community+\
@@ -133,7 +136,7 @@ def services_host(instr_tuple):
     services(instr_tuple[0])
 
 hosts = []
-folders = []
+folders = ["main"]
 sites = [] #TODO
 tags = {}
 ips = ["172.30."]
@@ -171,7 +174,8 @@ class MyCmd(cmd.Cmd):
 
 
     def do_add(self, line):
-        'add hostname ip tag_agent folder site'
+        'add hostname ip tag_agent folder site \n Type main for home directory placement \
+         Also completes services on newly added hosts'
         add_host(line.split())
     def complete_add(self, text, line, start_index, end_index):
         args = line.split()
