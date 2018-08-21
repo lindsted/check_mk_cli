@@ -123,9 +123,6 @@ def delete_host(host_tuple):
     check_print("DELETE", host_tuple[0], delete_response)
 
 def activate():
-    print "\nActivating..."
-    
-    #Activating changes
     activate_response = requests.get(url+url_actions["activate"], verify=False)
     check_print("ACTIVATION", "HOSTS", activate_response)
 
@@ -138,8 +135,8 @@ def services_host(instr_tuple):
 hosts = []
 folders = []
 sites = [] #TODO
-tags = ["tag_os", "one_more"]#TODO include tag values
-ips = ["172.30"]
+tags = {}
+ips = ["172.30."]
 agents = ["snmp", "agent"] 
 
 def populate():
@@ -154,8 +151,13 @@ def populate():
     for folder in raw_folders:
         folders.append(folder)
     
-    #populate_response = requests.get(url+url_actions["hosttags"], verify=False)
-    #pprint.pprint(ast.literal_eval(populate_response.text)['result']['tag_groups'][2])
+    populate_response = requests.get(url+url_actions["hosttags"], verify=False)
+    raw_tags = (ast.literal_eval(populate_response.text)['result']['tag_groups'][2:])
+    for tag in raw_tags:
+        temp_list = []      
+        for i in tag["tags"]:
+            temp_list.append(i["id"])
+        tags[ "tag_"+tag["id"] ] = temp_list
 
 
 
@@ -229,15 +231,17 @@ class MyCmd(cmd.Cmd):
                 ]
             elif len(args) == 4:
                 return [
-                    value for value in os_value
+                    value for value in tags[args[2]]
                     if value.startswith(text)
                 ]
         else:
             if len(args) == 1:
                 return hosts
             elif len(args) == 2:
-                return tags
-        
+                return [tag for tag in tags]
+            elif len(args) == 3:
+                return [ value for value in tags[args[2]] ]   
+    
     def do_view(self, line):
         'view hostname (or all)'
         view_host(line.split())
@@ -280,6 +284,7 @@ class MyCmd(cmd.Cmd):
 
     def do_exit(self, line):
         'exit (activates and exits programs)'
+        print "\nActivating..."
         activate()
         return True
 
