@@ -137,17 +137,25 @@ def services_host(instr_tuple):
 
 hosts = []
 folders = ["main"]
-sites = [] #TODO
+sites = [] 
 tags = {}
 ips = ["172.30."]
 agents = ["snmp", "agent"] 
 
+
+# On start-up, fill global variables with site's existing values 
+# For auto-completion interface
 def populate():
     populate_response = requests.get(url+url_actions["view all"], verify=False)
     raw_hosts = ast.literal_eval(populate_response.text)['result']
     for host in raw_hosts:
         hosts.append(host)
-
+    
+    # sites is populated based on existing values
+    temp_set = set()
+    for host in raw_hosts:
+        temp_set.add( raw_hosts[host]['attributes']['site'] )
+    sites.extend(list(temp_set))
 
     populate_response = requests.get(url+url_actions["folders"], verify=False)
     raw_folders = ast.literal_eval(populate_response.text)['result']
@@ -200,7 +208,7 @@ class MyCmd(cmd.Cmd):
                     folder for folder in folders
                     if folder.startswith(text)
                 ]
-            elif len(args) == 5:
+            elif len(args) == 6:
                 return [
                     site for site in sites
                     if site.startswith(text)
