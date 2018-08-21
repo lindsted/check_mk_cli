@@ -51,16 +51,16 @@ def services(host):
     check_print("SERVICES", host, put_response)
 
 def add_host(host_tuple):
-    if len(host_tuple) != 6:
+    if len(host_tuple) != 5:
         print "Incorrect number of arguments"
         return 
 
     
-    if host_tuple[3] == "agent":
+    if host_tuple[2] == "agent":
         snmp_community = 'None'
         tag_agent = 'cmk-agent'
         tag_snmp = 'no-snmp'
-    elif host_tuple[3] == "snmp":
+    elif host_tuple[2] == "snmp":
         snmp_community = 'public'
         tag_agent = 'no-agent'
         tag_snmp = 'snmp-v2'
@@ -70,15 +70,15 @@ def add_host(host_tuple):
 
     request_str = "&request={'attributes': {'tag_agent': '"+tag_agent+\
           "', 'tag_snmp': '"+tag_snmp+"', 'snmp_community': '"+snmp_community+\
-          "', 'alias': '"+host_tuple[2]+\
-          "', 'site': '"+host_tuple[5]+"', 'ipaddress': '"+host_tuple[2]+\
-          "'}, 'hostname': '"+host_tuple[1]+"', 'folder': '"+host_tuple[4]+"'}"
+          "', 'alias': '"+host_tuple[1]+\
+          "', 'site': '"+host_tuple[4]+"', 'ipaddress': '"+host_tuple[1]+\
+          "'}, 'hostname': '"+host_tuple[0]+"', 'folder': '"+host_tuple[3]+"'}"
 
     add_url = url+url_actions["add"]+request_str
     add_response = requests.get(add_url, verify=False)
-    added_eh = check_print("ADD", host_tuple[1], add_response)
+    added_eh = check_print("ADD", host_tuple[0], add_response)
     if added_eh:
-        services(host_tuple[1])
+        services(host_tuple[0])
 
 def view_host(host_tuple):
     if len(host_tuple) != 1:
@@ -137,9 +137,10 @@ def services_host(instr_tuple):
 
 hosts = []
 folders = []
+sites = [] #TODO
 tags = ["tag_os", "one_more"]#TODO include tag values
-ip = [] #TODO general ip ranges? like first 8 bits, then next 8...
-sites = [] #TODO 
+ips = ["172.30"]
+agents = ["snmp", "agent"] 
 
 def populate():
     populate_response = requests.get(url+url_actions["view all"], verify=False)
@@ -158,16 +159,16 @@ def populate():
 
 
 
-# for tab auto-complete feature
-# in general, each command has a do and a complete function
+# For tab auto-complete feature
+# Fn general, each command has a do and a complete function
 #       when enter is pressed, do is executed; when tab, complete
+# The string in the do function is used as the help entry for the command
 class MyCmd(cmd.Cmd):
-    intro = 'CLI leveraging Check_MK\'s Web-API. \nType ? <keyword> for more info.' 
+    intro = '\nCLI leveraging Check_MK\'s Web-API. \nType ? <keyword> for more info.' 
     prompt = '> '
 
 
     def do_add(self, line):
-        # string used as the help entry by cmd
         'add hostname ip tag_agent folder site'
         add_host(line.split())
     def complete_add(self, text, line, start_index, end_index):
@@ -179,17 +180,36 @@ class MyCmd(cmd.Cmd):
                     if host.startswith(text)
                 ]
             elif len(args) == 3:
-                return 
+                return [
+                    ip for ip in ips
+                    if ip.startswith(text)
+                ] 
             elif len(args) == 4:
                 return [
                     agent for agent in agents
                     if agent.startswith(text)
                 ]
+            elif len(args) == 5:
+                return [
+                    folder for folder in folders
+                    if folder.startswith(text)
+                ]
+            elif len(args) == 5:
+                return [
+                    site for site in sites
+                    if site.startswith(text)
+                ]
         else:
             if len(args) == 1:
                 return hosts
             elif len(args) == 2:
-                return tags
+                return ips
+            elif len(args) == 3:
+                return agents
+            elif len(args) == 4:
+                return folders
+            elif len(args) == 5:
+                return sites
 
     def do_edit(self, line):
         'edit hostname tag_name tag_value'
@@ -260,6 +280,7 @@ class MyCmd(cmd.Cmd):
 
     def do_exit(self, line):
         'exit (activates and exits programs)'
+        activate()
         return True
 
     def do_EOF(self, line):
@@ -274,4 +295,3 @@ if __name__ == '__main__':
     my_cmd = MyCmd()
     my_cmd.cmdloop()
         
-#    activate()
