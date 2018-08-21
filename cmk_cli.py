@@ -1,6 +1,5 @@
 #TODO what if the user wants to add the host to the home directory
 #TODO add some kind of logging/security
-#TODO EOF and "exit" ending
 
 # Script to use Check_MK's web API to manipulate hosts on a site
 
@@ -259,7 +258,14 @@ class MyCmd(cmd.Cmd):
         'activate'
         activate()
 
+    def do_exit(self, line):
+        'exit (activates and exits programs)'
+        return True
 
+    def do_EOF(self, line):
+        'EOF exits without activating'
+        print
+        return True
 
 
 
