@@ -1,6 +1,10 @@
 #TODO add some kind of logging/security
 
-# Script to use Check_MK's web API to manipulate hosts on a site
+# Script to use Check_MK's Web-API to configure hosts on a site
+# - Changes viewable on the multisite post activation
+# - Functional for Check_MK 1.5
+# - Check_MK does a majority of the error handling; printed to stdout by check_print
+# - A majority of the script covers the auto-complete features
 
 import readline
 import requests
@@ -8,8 +12,9 @@ import ast
 import pprint
 import cmd
 
-#acting on destination site
-#need to append action to url and required attributes for use
+
+# Url acting on destination site
+# For use, the url needs the action keyword and associated attribute values
 url = "http://172.23.240.169/test_site/check_mk/webapi.py?_username=automation&_secret=17f85ba2-bb76-4fc8-86f6-0d969d9ee7b0&request_format=python&output_format=python&action="
 url_actions = {"add":"add_host", \
                "services":"discover_services", \
@@ -29,10 +34,7 @@ class color:
     HL = '\x1b[1;36;40m'
 
 
-
-
-
-#Process GET response; report to stdout
+# Process GET response; report to stdout
 def check_print(type, host, _response):
     response = ast.literal_eval(_response.text)
     if response['result_code'] != 0:
@@ -43,13 +45,19 @@ def check_print(type, host, _response):
         return True
 
 
+
+# The following functions process user input as a tuple,
+#  and send their corresponding request through
+
 def services(host):
-    #Send GET request for services
     services_url = url+url_actions["services"]+'&request={\'hostname\': \''+host+"\'}"
     put_response = requests.get(services_url, verify=False)
     check_print("SERVICES", host, put_response)
 
+
 def add_host(host_tuple):
+
+    # host_tuple looks like [host, ip, agent, folder, site]
     if len(host_tuple) != 5:
         print "Incorrect number of arguments"
         return 
@@ -71,19 +79,24 @@ def add_host(host_tuple):
     if host_tuple[3] == "main":
         host_tuple[3] = ''
 
+    # appended to main url to specify host's attributes
     request_str = "&request={'attributes': {'tag_agent': '"+tag_agent+\
           "', 'tag_snmp': '"+tag_snmp+"', 'snmp_community': '"+snmp_community+\
           "', 'alias': '"+host_tuple[1]+\
           "', 'site': '"+host_tuple[4]+"', 'ipaddress': '"+host_tuple[1]+\
           "'}, 'hostname': '"+host_tuple[0]+"', 'folder': '"+host_tuple[3]+"'}"
-
+    
+    # send GET request for add; upon success also complete service discovery
     add_url = url+url_actions["add"]+request_str
     add_response = requests.get(add_url, verify=False)
     added_eh = check_print("ADD", host_tuple[0], add_response)
     if added_eh:
         services(host_tuple[0])
 
+
 def view_host(host_tuple):
+
+    # users may view "all" or a specific host
     if len(host_tuple) != 1:
         print "Incorrect number of arguments"
         return
@@ -100,7 +113,10 @@ def view_host(host_tuple):
         check_print("VIEW", host_tuple[0], view_response)
         pprint.pprint(ast.literal_eval(view_response.text)['result'])
 
+
 def edit_host(host_tuple):
+
+    # host_tuple should have format [host, tag_id, tag_value]
     if len(host_tuple) != 3:
         print "Incorrect number of arguments"
         return
@@ -113,21 +129,26 @@ def edit_host(host_tuple):
     edit_response = requests.get(edit_url, verify=False)
     check_print("EDIT", host_tuple[0], edit_response)
 
+
 def delete_host(host_tuple):
+
+    # host_tuple should have format [host, "imsure"]
     if len(host_tuple) != 2:
         print "Incorrect number of arguments"
         return
     elif host_tuple[1] != "imsure":
-        print "You are not sure enough"
+        print "You are not sure enough!"
         return
 
     delete_url = url+url_actions["delete"]+"&hostname="+host_tuple[0]
     delete_response = requests.get(delete_url, verify=False)
     check_print("DELETE", host_tuple[0], delete_response)
 
+
 def activate():
     activate_response = requests.get(url+url_actions["activate"], verify=False)
     check_print("ACTIVATION", "HOSTS", activate_response)
+
 
 def services_host(instr_tuple):
     if len(instr_tuple) != 1:
@@ -135,6 +156,9 @@ def services_host(instr_tuple):
        return
     services(instr_tuple[0])
 
+
+# These globals are used by the auto-complete features
+# On start-up, they are filled by populate() with the destination site's existing values
 hosts = []
 folders = ["main"]
 sites = [] 
@@ -143,15 +167,14 @@ ips = ["172.30."]
 agents = ["snmp", "agent"] 
 
 
-# On start-up, fill global variables with site's existing values 
-# For auto-completion interface
 def populate():
     populate_response = requests.get(url+url_actions["view all"], verify=False)
     raw_hosts = ast.literal_eval(populate_response.text)['result']
     for host in raw_hosts:
         hosts.append(host)
     
-    # sites is populated based on existing values
+    # sites is populated based on where current hosts are
+    # (there may be connected sites that exist without hosts; they will not be included)
     temp_set = set()
     for host in raw_hosts:
         temp_set.add( raw_hosts[host]['attributes']['site'] )
@@ -173,7 +196,7 @@ def populate():
 
 
 # For tab auto-complete feature
-# Fn general, each command has a do and a complete function
+# In general, each command has a do and a complete function
 #       when enter is pressed, do is executed; when tab, complete
 # The string in the do function is used as the help entry for the command
 class MyCmd(cmd.Cmd):
@@ -182,8 +205,8 @@ class MyCmd(cmd.Cmd):
 
 
     def do_add(self, line):
-        'add hostname ip tag_agent folder site \n Type main for home directory placement \
-         Also completes services on newly added hosts'
+        'add hostname ip tag_agent folder site \nType main for home directory placement\n\
+Also completes services on newly added hosts'
         add_host(line.split())
     def complete_add(self, text, line, start_index, end_index):
         args = line.split()
