@@ -11,11 +11,13 @@ import requests
 import ast
 import pprint
 import cmd
+import sys
 
 
 # Url acting on destination site
 # For use, the url needs the action keyword and associated attribute values
 url = "http://{{ip}}/{{site_name}}/check_mk/webapi.py?_username=automation&_secret={{auto_secret.stdout}}&request_format=python&output_format=python&action="
+
 url_actions = {"add":"add_host", \
                "services":"discover_services", \
                "edit":"edit_host", \
@@ -30,38 +32,50 @@ class color:
     OK = '\x1b[1;32;40m'
     ALERT = '\x1b[1;31;40m'
     END = '\x1b[0m'
-    MAN = '\x1b[1;37;40m'
+    MAN = '\x1b[1;33;40m'
     HL = '\x1b[1;36;40m'
+
+
+# for intro and help pages
+add_man = "add <hostname> <ip> <operating system> <sql status>\n\
+ Eg. add vtormtapr01 172.23.240.159 rhel7x no-sql\n"
+edit_man = "edit <hostname> <tag name> <tag value>\n\
+ Eg. edit vtormtapr01 tag_os rhel6x\n"
+delete_man = "delete <hostname> imsure\n\
+ Eg. delete vtormtapr01 imsure\n"
+services_man = "services <hostname>\n\
+ Eg. services vtormtapr01\n"
+view_man = "view <hostname>\n\
+ Eg. view vtormtapr01\n"
+
+activate_man = "activate    activate the changes on the sites\n"
+exit_man = "exit        activate changes and terminate script\n"
+EOF_man = "EOF (CtrlD) terminate script without activating changes\n"
+help_man = "help (or ?) repeat the specified command's args and examples\n"
+
+intro_man = "CLI leveraging Check_MK's Web-API.\n\
+\n\
+Features: add, edit, view, and delete hosts. \n\
+          Also completes service discovery and changes activation.\n\
+          TAB and arrow keys interface implemented for autocompletion.\n"
+
+hosts_man = add_man + edit_man + view_man + services_man
+other_man = activate_man + exit_man + EOF_man + help_man
+complete_man = color.HL + intro_man + "\n" + color.MAN + hosts_man + "\n" + other_man + color.END + "\n\n"
+
 
 
 # These globals are used by the auto-complete features
 # On start-up, they are filled by populate() with the destination site's existing values
 # Updated as user adds / removes hosts etc.
 hosts = []
-folders = ["main"]
-sites = ["{{site_name}}"]
+folders = []
+sites = ["test_site", "slave_site"]
 tags = {}
 ips = ["172.23."]
-agents = ["snmp", "agent"]
-locations = ["tor", "q9b", "q9t"]
-appcodes = ["rht"]
-enviros = ["lb"]
+os_tags = ["noos", "win2k", "win2k3", "win2k8", "win2k12r2", "rhel4x", "rhel5x", "rhel6x", "rhel7x"]
+locations = {"tor":"test_site", "q9b":"slave_site", "q9t":"slave_site"}
 
-
-# Check if input follows hostname pattern with existing variables
-#  11 chars: 1 type, 3 location, 3 appcode, 2 environment, 2 number
-# If it doesn't follow the pattern, the user will be asked to clarify (site, folder)
-def follows_pattern(host):
-
-    if len(host) != 11:
-        return False
-    elif host[1:4] not in locations:
-        return False
-#    elif host[4:7] not in appcode:
-#        return False
-#    elif host[7:9] not in enviros:
-#        return False
-    return True
 
 
 
@@ -88,43 +102,55 @@ def services(host):
 
 def add_host(host_tuple):
 
-    # host_tuple should look like [host, ip, agent, folder(optional), site(optional if folder specified)]
-    if len(host_tuple) < 3 || len(host_tuple) > 5:
+    # host_tuple should look like [host, ip, os, sql-server]
+    if len(host_tuple) != 4:
         print "Incorrect number of arguments"
         return 
+    elif len(host_tuple[0]) != 11:
+        print "Host does not follow naming convention; add via GUI"
+        return
 
-    host, ip, agent = host_tuple[0:3]
-    if len(host_tuple) == 3:
-        if follows_pattern(host):
-            site = "test_site" #TODO: mapping location code to site
-            folder = "main" #TODO: mapping location, appcode and enviro to folder
-        else:
-            print "Unable to resolve folder and site from hostname; add with complete arguments"
-            return
-    folder = host_tuple[3]
-    site = host_tuple[4]
+    host, ip, os, sql = host_tuple[0:4]
+    match_err = "Unable to resolve folder and site from hostname, no precedence set; add with complete arguments"
+
+    loc = host[1:4]            
+    app = host[4:7]
+    site = locations[loc]
+
+    if os not in os_tags:
+        print "Invalid os tag"
+        return
+    elif os.startswith("win"):
+        agent = "agent"
+        os_fam = "Windows"
+    elif os.startswith("rhel"):
+        agent = "agent"
+        os_fam = "Linux"
+    elif os == "noos":
+        agent = "snmp"
+        os_fam = "None"
+
 
     # translating agent tags    
-    if agent == "agent":
+    if agent == "agent":        
+        folder = "sys/t1/"+app+"/"+loc
+
         snmp_community = 'None'
         tag_agent = 'cmk-agent'
         tag_snmp = 'no-snmp'
     elif agent == "snmp":
+        folder = "net/t1/"+app+"/"+loc
+
         snmp_community = 'public'
         tag_agent = 'no-agent'
         tag_snmp = 'snmp-v2'
-    else:
-        print "Valid tags are 'agent' and 'snmp'"
-        return
 
-    # translating folder tag
-    if folder == "main":
-        folder = ''
 
     # appended to main url to specify host's attributes
     request_str = "&request={'attributes': {'tag_agent': '"+tag_agent+\
           "', 'tag_snmp': '"+tag_snmp+"', 'snmp_community': '"+snmp_community+\
-          "', 'alias': '"+ip+\
+          "', 'tag_os': '"+os+"', 'tag_os-family': '"+os_fam+\
+          "', 'alias': '"+ip+"', 'tag_sql-server': '"+sql+\
           "', 'site': '"+site+"', 'ipaddress': '"+ip+\
           "'}, 'hostname': '"+host+"', 'folder': '"+folder+"'}"
     
@@ -154,14 +180,16 @@ def view_host(host_tuple):
     if host_tuple[0] == "all":
         view_url = url+url_actions["view all"]
         view_response = requests.get(view_url, verify=False)
-        check_print("VIEW", host_tuple[0], view_response)
-        pprint.pprint(ast.literal_eval(view_response.text)['result'])
+        view_eh = check_print("VIEW", host_tuple[0], view_response)
+        if view_eh:
+            pprint.pprint(ast.literal_eval(view_response.text)['result'])
 
     else:
         view_url = url+url_actions["view"]+"&hostname="+host_tuple[0]
         view_response = requests.get(view_url, verify=False)
-        check_print("VIEW", host_tuple[0], view_response)
-        pprint.pprint(ast.literal_eval(view_response.text)['result'])
+        view_eh = check_print("VIEW", host_tuple[0], view_response)
+        if view_eh:
+            pprint.pprint(ast.literal_eval(view_response.text)['result'])
 
 
 def edit_host(host_tuple):
@@ -171,13 +199,12 @@ def edit_host(host_tuple):
         print "Incorrect number of arguments"
         return
     
-    tag_name = host_tuple[1]
-    tag_value = host_tuple[2]
+    host, tag_name, tag_value = host_tuple
     request_str = "&request={'attributes': {'"+tag_name+"': '"+tag_value+"'}}"
 
-    edit_url = url+url_actions["edit"]+"&hostname="+host_tuple[0]+request_str
+    edit_url = url+url_actions["edit"]+"&hostname="+host+request_str
     edit_response = requests.get(edit_url, verify=False)
-    check_print("EDIT", host_tuple[0], edit_response)
+    check_print("EDIT", host, edit_response)
 
 
 def delete_host(host_tuple):
@@ -201,11 +228,11 @@ def activate():
     check_print("ACTIVATION", "HOSTS", activate_response)
 
 
-def services_host(instr_tuple):
-    if len(instr_tuple) != 1:
+def services_host(host_tuple):
+    if len(host_tuple) != 1:
        print "Incorrect number of arguments"
        return
-    services(instr_tuple[0])
+    services(host_tuple[0])
 
 
 
@@ -227,7 +254,7 @@ def populate():
     raw_folders = ast.literal_eval(populate_response.text)['result']
     for folder in raw_folders:
         folders.append(folder)
-    folders.pop(1)
+    folders.remove("")
     
     populate_response = requests.get(url+url_actions["hosttags"], verify=False)
     raw_tags = (ast.literal_eval(populate_response.text)['result']['tag_groups'][2:])
@@ -243,14 +270,13 @@ def populate():
 # In general, each command has a do and a complete function
 #       when enter is pressed, do is executed; when tab, complete
 # The string in the do function is used as the help entry for the command
-class MyCmd(cmd.Cmd):
-    intro = '\nCLI leveraging Check_MK\'s Web-API. \nType ? <keyword> for more info.' 
+class Command(cmd.Cmd):
+    intro = complete_man 
     prompt = '> '
 
-
+    def help_add(self):
+        print add_man
     def do_add(self, line):
-        'add hostname ip tag_agent folder site \nType main for home directory placement\n\
-Also completes services on newly added hosts'
         add_host(line.lower().split())
     def complete_add(self, text, line, start_index, end_index):
         args = line.split()
@@ -267,33 +293,29 @@ Also completes services on newly added hosts'
                 ] 
             elif len(args) == 4:
                 return [
-                    agent for agent in agents
-                    if agent.startswith(text)
+                    os for os in os_tags
+                    if os.startswith(text)
                 ]
             elif len(args) == 5:
                 return [
-                    folder for folder in folders
-                    if folder.startswith(text)
+                    sql for sql in ["no-sql", "sql-srv"]
+                    if sql.startswith(text)
                 ]
-            elif len(args) == 6:
-                return [
-                    site for site in sites
-                    if site.startswith(text)
-                ]
+
+        
         else:
             if len(args) == 1:
                 return hosts
             elif len(args) == 2:
                 return ips
             elif len(args) == 3:
-                return agents
+                return os_tags
             elif len(args) == 4:
-                return folders
-            elif len(args) == 5:
-                return sites
+                return ["no-sql", "sql-srv"]
 
+    def help_edit(self):
+        print edit_man
     def do_edit(self, line):
-        'edit hostname tag_name tag_value'
         edit_host(line.lower().split())            
     def complete_edit(self, text, line, start_index, end_index):
         args = line.split()        
@@ -321,8 +343,9 @@ Also completes services on newly added hosts'
             elif len(args) == 3:
                 return [ value for value in tags[args[2]] ]   
     
+    def help_view(self):
+        print view_man 
     def do_view(self, line):
-        'view hostname (or all)'
         view_host(line.lower().split())
     def complete_view(self, text, line, start_index, end_index):
         if text:
@@ -333,8 +356,9 @@ Also completes services on newly added hosts'
         else: 
             return hosts+["all"]
 
+    def help_delete(self):
+        print delete_man
     def do_delete(self, line):
-        'delete hostname imsure (to acknowledge the finality of the action)'
         delete_host(line.lower().split())
     def complete_delete(self, text, line, start_index, end_index):
         if text:
@@ -345,8 +369,9 @@ Also completes services on newly added hosts'
         else:
             return hosts
 
+    def help_services(self):
+        print services_man
     def do_services(self, line):
-        'services hostname'    
         services_host(line.lower().split())
     def complete_services(self, text, line, start_index, end_index):
         if text:
@@ -357,26 +382,32 @@ Also completes services on newly added hosts'
         else:
             return hosts
 
+    def help_activate(self):
+        print activate_man
     def do_activate(self, line):
-        'activate'
         activate()
 
+    def help_exit(self):
+        print exit_man
     def do_exit(self, line):
-        'exit (activates and exits programs)'
         print "\nActivating..."
         activate()
         return True
 
+    def help_EOF(self):
+        print EOF_man
     def do_EOF(self, line):
-        'EOF exits without activating'
         print
         return True
 
 
 
 if __name__ == '__main__':
+    # clear screen
+    print "\033[H\033[J"
+
     populate()
-    my_cmd = MyCmd()
-    my_cmd.cmdloop()
+    cmd = Command()
+    cmd.cmdloop()
         
 
